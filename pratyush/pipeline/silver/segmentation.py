@@ -1,9 +1,8 @@
 from torch.utils.data import Dataset 
 from PIL import Image
 import os 
-import torch 
 
-class CellDataset(Dataset): 
+class SegmentationDataLoader(Dataset): 
     def __init__(
         self, 
         cell_types: list[str], 
