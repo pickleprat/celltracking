@@ -45,3 +45,52 @@ class DecoderBlock(nn.Module):
         x = torch.cat([skip, x], dim=1)
 
         return self.conv_block(x)
+
+
+class Decoder(nn.Module):
+    """The expanding half of the U-Net: one DecoderBlock per encoder level.
+
+    Mirrors the encoder's channel list in reverse, so depth comes along with
+    it and is never passed separately. Starting from the bottleneck:
+
+        1024 -> 512 -> 256 -> 128 -> 64
+
+    Each block consumes the skip from its own level, deepest first.
+    """
+
+    def __init__(
+        self,
+        channels: list[int],
+        bottleneck_channels: int | None = None,
+        num_convs: int = 3,
+        mode: str = "bilinear",
+    ):
+        super().__init__()
+        self.channels = list(channels)
+
+        outs = list(reversed(self.channels))
+        ins = [bottleneck_channels or self.channels[-1] * 2] + outs[:-1]
+
+        self.blocks = nn.ModuleList(
+            DecoderBlock(in_ch, out_ch, num_convs=num_convs, mode=mode)
+            for in_ch, out_ch in zip(ins, outs)
+        )
+
+    @property
+    def out_channels(self) -> int:
+        """Channels handed to the output head."""
+        return self.channels[0]
+
+    def forward(self, x: torch.Tensor, skips: list[torch.Tensor]) -> torch.Tensor:
+        # Checked up front: pairing the wrong number of skips would otherwise
+        # fail deep inside a block with a confusing channel-mismatch error.
+        if len(skips) != len(self.blocks):
+            raise ValueError(
+                f"expected {len(self.blocks)} skips, got {len(skips)} -- "
+                f"encoder depth and decoder depth disagree"
+            )
+
+        for block, skip in zip(self.blocks, reversed(skips)):
+            x = block(x, skip)
+
+        return x
